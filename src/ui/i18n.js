@@ -1,0 +1,229 @@
+// Локализация Lumetto. Работает и в окнах (через <script>), и в main-процессе (через require).
+(function (global) {
+  'use strict';
+
+  const LOCALES = { en: 'en-US', ru: 'ru-RU', zh: 'zh-CN', es: 'es-ES', ja: 'ja-JP' };
+  const NAMES = { en: 'English', ru: 'Русский', zh: '简体中文', es: 'Español', ja: '日本語' };
+
+  const D = {
+    en: {
+      'v.dateTime': '{day}, {time}',
+      'unit.s': ' s', 'unit.fps': ' fps', 'unit.mb': ' MB', 'unit.gb': ' GB',
+      'status.title': 'Pause / resume the buffer',
+      'status.buffer': 'Buffer', 'status.paused': 'Paused', 'status.error': 'Capture error', 'status.starting': 'Starting…',
+      'btn.openFolder': 'Open folder', 'btn.settings': 'Settings',
+      'hero.title': 'Moments', 'hero.empty': 'Nothing saved yet', 'hint.save': 'Save a moment',
+      'count.moments': { one: '{n} moment', other: '{n} moments' },
+      'day.today': 'Today', 'day.yesterday': 'Yesterday',
+      'empty.title': 'Your moments will appear here',
+      'empty.text': 'Press {keys} in any app or game —<br>Lumetto saves {before} before the press and {after} after.',
+      'tile.hold': 'Hold Space to bring it to life',
+      'series.badge': 'Series: overlapping clips play one after another',
+      'v.of': '{a} of {b}', 'v.series': 'series {a} of {b}',
+      'v.close': 'Close (Esc)', 'v.prev': 'Previous (←)', 'v.next': 'Next (→)',
+      'v.liveBtn': 'Hold to bring the photo to life (or hold Space)', 'v.key': 'Moment of the press',
+      'v.gif': 'Export as GIF', 'v.copy': 'Copy frame', 'v.reveal': 'Show in folder', 'v.delete': 'Delete (Del)',
+      'toast.hint': 'Hold Space to bring the photo to life', 'toast.trash': 'Moved to Recycle Bin',
+      'toast.gifSaved': 'GIF saved', 'toast.gifFail': 'Couldn’t create the GIF', 'toast.copied': 'Frame copied',
+      'set.title': 'Settings', 'set.language': 'Language', 'set.hotkey': 'Shortcut',
+      'set.hotkeyNote': 'Click, then press a new shortcut. Esc to cancel.', 'set.hotkeyRec': 'Press a shortcut…',
+      'set.hotkeyBusy': 'This shortcut is taken by another app — choose another', 'set.hotkeyMod': 'Add Ctrl, Alt or Shift',
+      'set.saved': 'Saved', 'set.before': 'Before the press', 'set.after': 'After the press',
+      'set.quality': 'Quality', 'set.native': 'Native', 'set.fps': 'Frame rate', 'set.display': 'Display',
+      'set.primary': 'primary', 'set.displayN': 'Display {n}', 'set.folder': 'Folder', 'set.change': 'Change',
+      'set.buffer': 'Recording buffer on', 'set.flash': 'Flash on capture', 'set.preview': 'Corner preview',
+      'set.login': 'Start with Windows',
+      'set.footnote': 'Until you press the shortcut, frames live in memory for just a few seconds and are never saved. Audio is not recorded.',
+      'ov.error': 'Error', 'ov.paused.title': 'Recording is paused', 'ov.paused.text': 'Turn the buffer on in the tray menu',
+      'ov.notReady.title': 'Screen capture isn’t ready', 'ov.notReady.text': 'Wait a couple of seconds',
+      'ov.failed.title': 'Couldn’t save', 'ov.failed.text': 'Please try again',
+      'err.noScreen': 'No access to the screen', 'err.displayLost': 'Display disconnected', 'err.encoder': 'Encoder error',
+      'err.codec': 'VP9/VP8 codec unavailable', 'err.bufferEmpty': 'The buffer is still empty', 'err.fewFrames': 'Too few frames',
+      'tray.gallery': 'Open gallery', 'tray.folder': 'Moments folder', 'tray.pause': 'Pause buffer', 'tray.quit': 'Quit',
+      'dlg.pickFolder': 'Folder for moments', 'dlg.saveGif': 'Save GIF',
+    },
+
+    ru: {
+      'v.dateTime': '{day}, {time}',
+      'unit.s': ' с', 'unit.fps': ' к/с', 'unit.mb': ' МБ', 'unit.gb': ' ГБ',
+      'status.title': 'Пауза / продолжить буфер',
+      'status.buffer': 'Буфер', 'status.paused': 'Пауза', 'status.error': 'Ошибка захвата', 'status.starting': 'Запуск…',
+      'btn.openFolder': 'Открыть папку', 'btn.settings': 'Настройки',
+      'hero.title': 'Моменты', 'hero.empty': 'Пока ничего не сохранено', 'hint.save': 'Сохранить момент',
+      'count.moments': { one: '{n} момент', few: '{n} момента', many: '{n} моментов', other: '{n} момента' },
+      'day.today': 'Сегодня', 'day.yesterday': 'Вчера',
+      'empty.title': 'Здесь появятся ваши моменты',
+      'empty.text': 'Нажмите {keys} в любой программе или игре —<br>Lumetto сохранит {before} до нажатия и {after} после.',
+      'tile.hold': 'Зажмите пробел — фото оживёт',
+      'series.badge': 'Серия: клипы, снятые внахлёст, проигрываются подряд',
+      'v.of': '{a} из {b}', 'v.series': 'серия {a} из {b}',
+      'v.close': 'Закрыть (Esc)', 'v.prev': 'Предыдущий (←)', 'v.next': 'Следующий (→)',
+      'v.liveBtn': 'Удерживайте — фото оживёт (или зажмите пробел)', 'v.key': 'Момент нажатия',
+      'v.gif': 'Экспорт в GIF', 'v.copy': 'Копировать кадр', 'v.reveal': 'Показать в папке', 'v.delete': 'Удалить (Del)',
+      'toast.hint': 'Зажмите пробел — фото оживёт', 'toast.trash': 'Перемещено в корзину',
+      'toast.gifSaved': 'GIF сохранён', 'toast.gifFail': 'Не удалось сделать GIF', 'toast.copied': 'Кадр скопирован',
+      'set.title': 'Настройки', 'set.language': 'Язык', 'set.hotkey': 'Сочетание клавиш',
+      'set.hotkeyNote': 'Нажмите, затем введите новое сочетание. Esc — отмена.', 'set.hotkeyRec': 'Нажмите сочетание…',
+      'set.hotkeyBusy': 'Сочетание занято другой программой — выберите другое', 'set.hotkeyMod': 'Добавьте Ctrl, Alt или Shift',
+      'set.saved': 'Сохранено', 'set.before': 'До нажатия', 'set.after': 'После нажатия',
+      'set.quality': 'Качество', 'set.native': 'Исходное', 'set.fps': 'Частота кадров', 'set.display': 'Монитор',
+      'set.primary': 'основной', 'set.displayN': 'Монитор {n}', 'set.folder': 'Папка', 'set.change': 'Изменить',
+      'set.buffer': 'Буфер записи включён', 'set.flash': 'Вспышка при нажатии', 'set.preview': 'Превью в углу экрана',
+      'set.login': 'Запускать вместе с Windows',
+      'set.footnote': 'Пока вы не нажали хоткей, кадры живут только в памяти несколько секунд и никуда не сохраняются. Звук не записывается.',
+      'ov.error': 'Ошибка', 'ov.paused.title': 'Запись на паузе', 'ov.paused.text': 'Включите буфер в меню трея',
+      'ov.notReady.title': 'Захват экрана не готов', 'ov.notReady.text': 'Подождите пару секунд',
+      'ov.failed.title': 'Не удалось сохранить', 'ov.failed.text': 'Попробуйте ещё раз',
+      'err.noScreen': 'Нет доступа к экрану', 'err.displayLost': 'Монитор отключён', 'err.encoder': 'Ошибка кодировщика',
+      'err.codec': 'Кодек VP9/VP8 недоступен', 'err.bufferEmpty': 'Буфер ещё пуст', 'err.fewFrames': 'Слишком мало кадров',
+      'tray.gallery': 'Открыть галерею', 'tray.folder': 'Папка с моментами', 'tray.pause': 'Пауза буфера', 'tray.quit': 'Выход',
+      'dlg.pickFolder': 'Папка для моментов', 'dlg.saveGif': 'Сохранить GIF',
+    },
+
+    zh: {
+      'v.dateTime': '{day} {time}',
+      'unit.s': '秒', 'unit.fps': ' fps', 'unit.mb': ' MB', 'unit.gb': ' GB',
+      'status.title': '暂停 / 继续缓冲',
+      'status.buffer': '缓冲', 'status.paused': '已暂停', 'status.error': '捕获出错', 'status.starting': '正在启动…',
+      'btn.openFolder': '打开文件夹', 'btn.settings': '设置',
+      'hero.title': '瞬间', 'hero.empty': '还没有保存任何内容', 'hint.save': '保存瞬间',
+      'count.moments': { other: '{n} 个瞬间' },
+      'day.today': '今天', 'day.yesterday': '昨天',
+      'empty.title': '你的瞬间会出现在这里',
+      'empty.text': '在任意程序或游戏中按下 {keys}，<br>Lumetto 会保存按下前 {before} 和按下后 {after} 的画面。',
+      'tile.hold': '按住空格键，让照片动起来',
+      'series.badge': '连拍：时间重叠的片段会依次播放',
+      'v.of': '{a} / {b}', 'v.series': '连拍 {a}/{b}',
+      'v.close': '关闭 (Esc)', 'v.prev': '上一个 (←)', 'v.next': '下一个 (→)',
+      'v.liveBtn': '按住让照片动起来（或按住空格键）', 'v.key': '按下的瞬间',
+      'v.gif': '导出为 GIF', 'v.copy': '复制画面', 'v.reveal': '在文件夹中显示', 'v.delete': '删除 (Del)',
+      'toast.hint': '按住空格键，让照片动起来', 'toast.trash': '已移至回收站',
+      'toast.gifSaved': 'GIF 已保存', 'toast.gifFail': '无法生成 GIF', 'toast.copied': '画面已复制',
+      'set.title': '设置', 'set.language': '语言', 'set.hotkey': '快捷键',
+      'set.hotkeyNote': '点击后按下新的快捷键。按 Esc 取消。', 'set.hotkeyRec': '请按下快捷键…',
+      'set.hotkeyBusy': '该快捷键已被其他程序占用，请换一个', 'set.hotkeyMod': '请加上 Ctrl、Alt 或 Shift',
+      'set.saved': '已保存', 'set.before': '按下前', 'set.after': '按下后',
+      'set.quality': '画质', 'set.native': '原始', 'set.fps': '帧率', 'set.display': '显示器',
+      'set.primary': '主显示器', 'set.displayN': '显示器 {n}', 'set.folder': '文件夹', 'set.change': '更改',
+      'set.buffer': '录制缓冲已开启', 'set.flash': '截取时闪光', 'set.preview': '屏幕角落预览',
+      'set.login': '开机时启动',
+      'set.footnote': '在你按下快捷键之前，画面只会在内存中保留几秒钟，不会保存到任何地方。不录制声音。',
+      'ov.error': '错误', 'ov.paused.title': '录制已暂停', 'ov.paused.text': '请在托盘菜单中开启缓冲',
+      'ov.notReady.title': '屏幕捕获尚未就绪', 'ov.notReady.text': '请稍等几秒',
+      'ov.failed.title': '保存失败', 'ov.failed.text': '请重试',
+      'err.noScreen': '无法访问屏幕', 'err.displayLost': '显示器已断开', 'err.encoder': '编码器错误',
+      'err.codec': 'VP9/VP8 编码器不可用', 'err.bufferEmpty': '缓冲区仍为空', 'err.fewFrames': '帧数太少',
+      'tray.gallery': '打开图库', 'tray.folder': '瞬间文件夹', 'tray.pause': '暂停缓冲', 'tray.quit': '退出',
+      'dlg.pickFolder': '保存瞬间的文件夹', 'dlg.saveGif': '保存 GIF',
+    },
+
+    es: {
+      'v.dateTime': '{day}, {time}',
+      'unit.s': ' s', 'unit.fps': ' fps', 'unit.mb': ' MB', 'unit.gb': ' GB',
+      'status.title': 'Pausar / reanudar el búfer',
+      'status.buffer': 'Búfer', 'status.paused': 'En pausa', 'status.error': 'Error de captura', 'status.starting': 'Iniciando…',
+      'btn.openFolder': 'Abrir carpeta', 'btn.settings': 'Ajustes',
+      'hero.title': 'Momentos', 'hero.empty': 'Aún no hay nada guardado', 'hint.save': 'Guardar momento',
+      'count.moments': { one: '{n} momento', other: '{n} momentos' },
+      'day.today': 'Hoy', 'day.yesterday': 'Ayer',
+      'empty.title': 'Aquí aparecerán tus momentos',
+      'empty.text': 'Pulsa {keys} en cualquier app o juego:<br>Lumetto guarda {before} antes de pulsar y {after} después.',
+      'tile.hold': 'Mantén pulsada la barra espaciadora para darle vida',
+      'series.badge': 'Serie: los clips superpuestos se reproducen seguidos',
+      'v.of': '{a} de {b}', 'v.series': 'serie {a} de {b}',
+      'v.close': 'Cerrar (Esc)', 'v.prev': 'Anterior (←)', 'v.next': 'Siguiente (→)',
+      'v.liveBtn': 'Mantén pulsado para darle vida a la foto (o la barra espaciadora)', 'v.key': 'Momento de la pulsación',
+      'v.gif': 'Exportar como GIF', 'v.copy': 'Copiar fotograma', 'v.reveal': 'Mostrar en la carpeta', 'v.delete': 'Eliminar (Supr)',
+      'toast.hint': 'Mantén la barra espaciadora para darle vida a la foto', 'toast.trash': 'Movido a la papelera',
+      'toast.gifSaved': 'GIF guardado', 'toast.gifFail': 'No se pudo crear el GIF', 'toast.copied': 'Fotograma copiado',
+      'set.title': 'Ajustes', 'set.language': 'Idioma', 'set.hotkey': 'Atajo de teclado',
+      'set.hotkeyNote': 'Haz clic y pulsa el nuevo atajo. Esc para cancelar.', 'set.hotkeyRec': 'Pulsa un atajo…',
+      'set.hotkeyBusy': 'Otra app usa este atajo: elige otro', 'set.hotkeyMod': 'Añade Ctrl, Alt o Mayús',
+      'set.saved': 'Guardado', 'set.before': 'Antes de pulsar', 'set.after': 'Después de pulsar',
+      'set.quality': 'Calidad', 'set.native': 'Original', 'set.fps': 'Fotogramas por segundo', 'set.display': 'Pantalla',
+      'set.primary': 'principal', 'set.displayN': 'Pantalla {n}', 'set.folder': 'Carpeta', 'set.change': 'Cambiar',
+      'set.buffer': 'Búfer de grabación activado', 'set.flash': 'Destello al capturar', 'set.preview': 'Vista previa en la esquina',
+      'set.login': 'Iniciar con Windows',
+      'set.footnote': 'Hasta que pulses el atajo, los fotogramas solo están unos segundos en la memoria y nunca se guardan. No se graba audio.',
+      'ov.error': 'Error', 'ov.paused.title': 'Grabación en pausa', 'ov.paused.text': 'Activa el búfer en el menú de la bandeja',
+      'ov.notReady.title': 'La captura de pantalla no está lista', 'ov.notReady.text': 'Espera un par de segundos',
+      'ov.failed.title': 'No se pudo guardar', 'ov.failed.text': 'Inténtalo de nuevo',
+      'err.noScreen': 'Sin acceso a la pantalla', 'err.displayLost': 'Pantalla desconectada', 'err.encoder': 'Error del codificador',
+      'err.codec': 'Códec VP9/VP8 no disponible', 'err.bufferEmpty': 'El búfer aún está vacío', 'err.fewFrames': 'Muy pocos fotogramas',
+      'tray.gallery': 'Abrir galería', 'tray.folder': 'Carpeta de momentos', 'tray.pause': 'Pausar búfer', 'tray.quit': 'Salir',
+      'dlg.pickFolder': 'Carpeta para los momentos', 'dlg.saveGif': 'Guardar GIF',
+    },
+
+    ja: {
+      'v.dateTime': '{day} {time}',
+      'unit.s': '秒', 'unit.fps': ' fps', 'unit.mb': ' MB', 'unit.gb': ' GB',
+      'status.title': 'バッファを一時停止 / 再開',
+      'status.buffer': 'バッファ', 'status.paused': '一時停止中', 'status.error': 'キャプチャエラー', 'status.starting': '起動中…',
+      'btn.openFolder': 'フォルダーを開く', 'btn.settings': '設定',
+      'hero.title': 'モーメント', 'hero.empty': 'まだ何も保存されていません', 'hint.save': 'モーメントを保存',
+      'count.moments': { other: '{n} 件のモーメント' },
+      'day.today': '今日', 'day.yesterday': '昨日',
+      'empty.title': 'ここにモーメントが表示されます',
+      'empty.text': 'どのアプリやゲームでも {keys} を押すと、<br>Lumetto が押す前の {before} と押した後の {after} を保存します。',
+      'tile.hold': 'スペースキーを長押しすると動き出します',
+      'series.badge': 'シリーズ：時間が重なったクリップを続けて再生します',
+      'v.of': '{a} / {b}', 'v.series': 'シリーズ {a}/{b}',
+      'v.close': '閉じる (Esc)', 'v.prev': '前へ (←)', 'v.next': '次へ (→)',
+      'v.liveBtn': '長押しで写真が動き出します（スペースキーでも可）', 'v.key': '押した瞬間',
+      'v.gif': 'GIF として書き出す', 'v.copy': 'フレームをコピー', 'v.reveal': 'フォルダーで表示', 'v.delete': '削除 (Del)',
+      'toast.hint': 'スペースキーを長押しすると写真が動き出します', 'toast.trash': 'ごみ箱に移動しました',
+      'toast.gifSaved': 'GIF を保存しました', 'toast.gifFail': 'GIF を作成できませんでした', 'toast.copied': 'フレームをコピーしました',
+      'set.title': '設定', 'set.language': '言語', 'set.hotkey': 'ショートカット',
+      'set.hotkeyNote': 'クリックして新しいショートカットを押してください。Esc でキャンセル。', 'set.hotkeyRec': 'ショートカットを押してください…',
+      'set.hotkeyBusy': 'このショートカットは他のアプリで使われています。別のものを選んでください', 'set.hotkeyMod': 'Ctrl、Alt または Shift を加えてください',
+      'set.saved': '保存しました', 'set.before': '押す前', 'set.after': '押した後',
+      'set.quality': '画質', 'set.native': 'ネイティブ', 'set.fps': 'フレームレート', 'set.display': 'ディスプレイ',
+      'set.primary': 'メイン', 'set.displayN': 'ディスプレイ {n}', 'set.folder': 'フォルダー', 'set.change': '変更',
+      'set.buffer': '録画バッファをオン', 'set.flash': 'キャプチャ時にフラッシュ', 'set.preview': '画面隅のプレビュー',
+      'set.login': 'Windows と同時に起動',
+      'set.footnote': 'ショートカットを押すまで、映像は数秒間メモリ上にあるだけで保存されません。音声は録音されません。',
+      'ov.error': 'エラー', 'ov.paused.title': '録画は一時停止中です', 'ov.paused.text': 'トレイメニューでバッファをオンにしてください',
+      'ov.notReady.title': '画面キャプチャの準備ができていません', 'ov.notReady.text': '数秒お待ちください',
+      'ov.failed.title': '保存できませんでした', 'ov.failed.text': 'もう一度お試しください',
+      'err.noScreen': '画面にアクセスできません', 'err.displayLost': 'ディスプレイが切断されました', 'err.encoder': 'エンコーダーエラー',
+      'err.codec': 'VP9/VP8 コーデックを利用できません', 'err.bufferEmpty': 'バッファがまだ空です', 'err.fewFrames': 'フレームが少なすぎます',
+      'tray.gallery': 'ギャラリーを開く', 'tray.folder': 'モーメントのフォルダー', 'tray.pause': 'バッファを一時停止', 'tray.quit': '終了',
+      'dlg.pickFolder': 'モーメントの保存先', 'dlg.saveGif': 'GIF を保存',
+    },
+  };
+
+  let lang = 'en';
+
+  function setLang(l) { lang = D[l] ? l : 'en'; return lang; }
+  function has(key) { return Object.prototype.hasOwnProperty.call(D.en, key); }
+
+  function t(key, vars) {
+    let s = D[lang][key];
+    if (s === undefined) s = D.en[key];
+    if (s === undefined) return key;
+    if (typeof s !== 'string' || !vars) return s;
+    return s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
+  }
+
+  // Ключ ошибки → текст; посторонние сообщения возвращаются как есть
+  function msg(m) { return m && has(m) ? t(m) : m; }
+
+  function num(x, digits = 1) {
+    return new Intl.NumberFormat(LOCALES[lang], { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(x);
+  }
+
+  function count(n) {
+    const forms = t('count.moments');
+    const cat = new Intl.PluralRules(LOCALES[lang]).select(n);
+    return (forms[cat] || forms.other).replace('{n}', num(n, 0));
+  }
+
+  const api = {
+    t, msg, num, count, setLang, has, NAMES, LOCALES,
+    LANGS: Object.keys(NAMES),
+    get lang() { return lang; },
+    get locale() { return LOCALES[lang]; },
+  };
+  global.I18N = api;
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>Lumetto</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-live" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="9.4" stroke-dasharray="1.6 2.2"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"/><path d="M19.4 13.5a7.7 7.7 0 0 0 0-3l2-1.5-2-3.4-2.3.9a7.6 7.6 0 0 0-2.6-1.5L14.1 2.6h-4l-.4 2.4a7.6 7.6 0 0 0-2.6 1.5l-2.3-.9-2 3.4 2 1.5a7.7 7.7 0 0 0 0 3l-2 1.5 2 3.4 2.3-.9c.8.6 1.6 1.1 2.6 1.5l.4 2.4h4l.4-2.4c1-.4 1.8-.9 2.6-1.5l2.3.9 2-3.4-2-1.5Z"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.2c0-1 .8-1.8 1.8-1.8h4l2 2.2h7.4c1 0 1.8.8 1.8 1.8v8.4c0 1-.8 1.8-1.8 1.8H5.3c-1 0-1.8-.8-1.8-1.8V7.2Z"/></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+      <symbol id="i-prev" viewBox="0 0 24 24"><path d="M14.5 5.5 8 12l6.5 6.5"/></symbol>
+      <symbol id="i-next" viewBox="0 0 24 24"><path d="M9.5 5.5 16 12l-6.5 6.5"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.8v12.4c0 .7.8 1.2 1.4.8l9.4-6.2a1 1 0 0 0 0-1.6L9.4 5c-.6-.4-1.4.1-1.4.8Z" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6.5" y="5.5" width="3.6" height="13" rx="1.2" fill="currentColor" stroke="none"/><rect x="13.9" y="5.5" width="3.6" height="13" rx="1.2" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 6.5h15M9.5 6.5V4.8c0-.5.4-.8.8-.8h3.4c.4 0 .8.3.8.8v1.7M6.5 6.5l.8 12.2c0 .7.6 1.3 1.3 1.3h6.8c.7 0 1.3-.6 1.3-1.3l.8-12.2"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.2"/><path d="M15.5 8.5V6.2c0-1-.8-1.7-1.7-1.7H6.2c-1 0-1.7.8-1.7 1.7v7.6c0 1 .8 1.7 1.7 1.7h2.3"/></symbol>
+      <symbol id="i-gif" viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="3"/><path d="M10 10.2c-.3-.5-.9-.8-1.6-.8-1.1 0-1.9.9-1.9 2.6s.8 2.6 1.9 2.6c1 0 1.7-.7 1.7-1.8v-.4H8.6M12.6 9.5v5M15.6 14.5v-5h2.6M15.6 12h2.1"/></symbol>
+      <symbol id="i-pausebuf" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M10 9v6M14 9v6"/></symbol>
+      <symbol id="i-series" viewBox="0 0 24 24"><rect x="3.5" y="7.5" width="13" height="12" rx="2.4"/><path d="M7.5 4.5h10.2c1.5 0 2.8 1.3 2.8 2.8v8.2"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5.5 12.5 4 4 9-9"/></symbol>
+    </defs>
+  </svg>
+
+  <header class="titlebar">
+    <div class="brand">
+      <span class="logo"><svg><use href="#i-live"/></svg></span>
+      <span class="brand-name">Lumetto</span>
+    </div>
+    <div class="drag"></div>
+    <button class="status" id="status" data-i18n-title="status.title">
+      <span class="status-dot"></span><span class="status-text" id="statusText"></span>
+    </button>
+    <button class="icon-btn" id="openFolder" data-i18n-title="btn.openFolder"><svg><use href="#i-folder"/></svg></button>
+    <button class="icon-btn" id="openSettings" data-i18n-title="btn.settings"><svg><use href="#i-gear"/></svg></button>
+  </header>
+
+  <main class="scroll" id="scroll">
+    <section class="hero">
+      <div>
+        <h1 data-i18n="hero.title"></h1>
+        <p class="hero-meta" id="count">&nbsp;</p>
+      </div>
+      <div class="hint" id="hint">
+        <span data-i18n="hint.save"></span>
+        <span class="keys" id="hintKeys"></span>
+      </div>
+    </section>
+
+    <div id="groups"></div>
+
+    <section class="empty" id="empty" hidden>
+      <div class="empty-art">
+        <span class="r r1"></span><span class="r r2"></span><span class="r r3"></span><span class="core"></span>
+      </div>
+      <h2 data-i18n="empty.title"></h2>
+      <p id="emptyText"></p>
+    </section>
+  </main>
+
+  <div class="viewer" id="viewer" hidden>
+    <div class="v-backdrop" id="vBackdrop"></div>
+    <div class="v-top">
+      <div class="v-title">
+        <span id="vDate"></span>
+        <span class="v-sub" id="vSub"></span>
+      </div>
+      <button class="icon-btn" id="vClose" data-i18n-title="v.close"><svg><use href="#i-close"/></svg></button>
+    </div>
+    <div class="v-stage" id="vStage">
+      <div class="v-frame" id="vFrame">
+        <video id="vVideo" muted playsinline preload="auto"></video>
+        <video id="vVideo2" muted playsinline preload="auto" style="opacity:0"></video>
+        <img id="vPoster" alt="" draggable="false">
+        <span class="v-live" data-i18n-title="tile.hold"><svg><use href="#i-live"/></svg>LIVE</span>
+      </div>
+    </div>
+    <button class="v-nav prev" id="vPrev" data-i18n-title="v.prev"><svg><use href="#i-prev"/></svg></button>
+    <button class="v-nav next" id="vNext" data-i18n-title="v.next"><svg><use href="#i-next"/></svg></button>
+    <div class="v-bar" id="vBar">
+      <button class="live-btn" id="vLiveBtn" data-i18n-title="v.liveBtn"><svg><use href="#i-live"/></svg><span>LIVE</span></button>
+      <span class="v-time" id="vTime">0,0</span>
+      <div class="scrub" id="vScrub">
+        <div class="scrub-track"><div class="scrub-fill" id="vFill"></div></div>
+        <span class="scrub-key" id="vKey" data-i18n-title="v.key"></span>
+        <span class="scrub-thumb" id="vThumb"></span>
+      </div>
+      <span class="v-time dim" id="vDur">3,0</span>
+      <span class="v-sep"></span>
+      <button class="icon-btn" id="vGif" data-i18n-title="v.gif"><svg><use href="#i-gif"/></svg></button>
+      <button class="icon-btn" id="vCopy" data-i18n-title="v.copy"><svg><use href="#i-copy"/></svg></button>
+      <button class="icon-btn" id="vReveal" data-i18n-title="v.reveal"><svg><use href="#i-folder"/></svg></button>
+      <button class="icon-btn danger" id="vDelete" data-i18n-title="v.delete"><svg><use href="#i-trash"/></svg></button>
+    </div>
+  </div>
+
+  <div class="scrim" id="scrim"></div>
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <h2 data-i18n="set.title"></h2>
+      <button class="icon-btn" id="closeSettings"><svg><use href="#i-close"/></svg></button>
+    </div>
+    <div class="drawer-body">
+      <div class="field">
+        <label data-i18n="set.language"></label>
+        <div class="select-wrap"><select id="lang"></select></div>
+      </div>
+
+      <div class="field">
+        <label data-i18n="set.hotkey"></label>
+        <button class="hotkey" id="hotkey"><span class="keys" id="hotkeyKeys"></span></button>
+        <p class="note" id="hotkeyNote" data-i18n="set.hotkeyNote"></p>
+      </div>
+
+      <div class="field">
+        <label data-i18n="set.before"></label>
+        <div class="seg" data-key="before" data-values="0.5,1,1.5,2,3" data-unit="unit.s"></div>
+      </div>
+      <div class="field">
+        <label data-i18n="set.after"></label>
+        <div class="seg" data-key="after" data-values="0.5,1,1.5,2,3" data-unit="unit.s"></div>
+      </div>
+      <div class="field">
+        <label data-i18n="set.quality"></label>
+        <div class="seg" data-key="maxHeight" data-values="720,1080,0" data-labels="720p,1080p,@set.native"></div>
+      </div>
+      <div class="field">
+        <label data-i18n="set.fps"></label>
+        <div class="seg" data-key="fps" data-values="24,30,60" data-unit="unit.fps"></div>
+      </div>
+      <div class="field">
+        <label data-i18n="set.display"></label>
+        <div class="select-wrap"><select id="display"></select></div>
+      </div>
+      <div class="field">
+        <label data-i18n="set.folder"></label>
+        <div class="path-row">
+          <span class="path" id="saveDir"></span>
+          <button class="btn" id="pickDir" data-i18n="set.change"></button>
+        </div>
+      </div>
+
+      <div class="toggles">
+        <label class="toggle"><span data-i18n="set.buffer"></span><input type="checkbox" id="tBuffer"><i></i></label>
+        <label class="toggle"><span data-i18n="set.flash"></span><input type="checkbox" id="tFlash"><i></i></label>
+        <label class="toggle"><span data-i18n="set.preview"></span><input type="checkbox" id="tToast"><i></i></label>
+        <label class="toggle"><span data-i18n="set.login"></span><input type="checkbox" id="tLogin"><i></i></label>
+      </div>
+
+      <p class="footnote" data-i18n="set.footnote"></p>
+    </div>
+  </aside>
+
+  <div class="toasts" id="toasts"></div>
+
+  <script src="i18n.js"></script>
+  <script src="lib/gif.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

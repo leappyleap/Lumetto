@@ -1,0 +1,41 @@
+{
+  "name": "lumetto",
+  "productName": "Lumetto",
+  "version": "1.0.0",
+  "description": "Live-фото для Windows: хоткей сохраняет 3 секунды экрана — до и после нажатия.",
+  "main": "src/main.js",
+  "author": "Lumetto",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis portable --x64"
+  },
+  "devDependencies": {
+    "electron": "^44.7.2",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "app.lumetto",
+    "productName": "Lumetto",
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Lumetto"
+    },
+    "portable": {
+      "artifactName": "Lumetto-portable-${version}.exe"
+    }
+  }
+}
