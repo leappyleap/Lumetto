@@ -4,9 +4,11 @@
 
   const LOCALES = { en: 'en-US', ru: 'ru-RU', zh: 'zh-CN', es: 'es-ES', ja: 'ja-JP' };
   const NAMES = { en: 'English', ru: 'Русский', zh: '简体中文', es: 'Español', ja: '日本語' };
+  const ENGLISH_NAMES = { en: 'English', ru: 'Russian', zh: 'Chinese (Simplified)', es: 'Spanish', ja: 'Japanese' };
 
   const D = {
     en: {
+      'welcome.pick': 'Choose your language',
       'v.dateTime': '{day}, {time}',
       'unit.s': ' s', 'unit.fps': ' fps', 'unit.mb': ' MB', 'unit.gb': ' GB',
       'status.title': 'Pause / resume the buffer',
@@ -44,6 +46,7 @@
     },
 
     ru: {
+      'welcome.pick': 'Выберите язык',
       'v.dateTime': '{day}, {time}',
       'unit.s': ' с', 'unit.fps': ' к/с', 'unit.mb': ' МБ', 'unit.gb': ' ГБ',
       'status.title': 'Пауза / продолжить буфер',
@@ -81,6 +84,7 @@
     },
 
     zh: {
+      'welcome.pick': '选择语言',
       'v.dateTime': '{day} {time}',
       'unit.s': '秒', 'unit.fps': ' fps', 'unit.mb': ' MB', 'unit.gb': ' GB',
       'status.title': '暂停 / 继续缓冲',
@@ -118,6 +122,7 @@
     },
 
     es: {
+      'welcome.pick': 'Elige tu idioma',
       'v.dateTime': '{day}, {time}',
       'unit.s': ' s', 'unit.fps': ' fps', 'unit.mb': ' MB', 'unit.gb': ' GB',
       'status.title': 'Pausar / reanudar el búfer',
@@ -155,6 +160,7 @@
     },
 
     ja: {
+      'welcome.pick': '言語を選んでください',
       'v.dateTime': '{day} {time}',
       'unit.s': '秒', 'unit.fps': ' fps', 'unit.mb': ' MB', 'unit.gb': ' GB',
       'status.title': 'バッファを一時停止 / 再開',
@@ -219,7 +225,9 @@
   }
 
   const api = {
-    t, msg, num, count, setLang, has, NAMES, LOCALES,
+    t, msg, num, count, setLang, has, NAMES, ENGLISH_NAMES, LOCALES,
+    // строка на конкретном языке, не меняя текущий
+    tIn(l, key) { return (D[l] && D[l][key]) || D.en[key] || key; },
     LANGS: Object.keys(NAMES),
     get lang() { return lang; },
     get locale() { return LOCALES[lang]; },

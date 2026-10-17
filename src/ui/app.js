@@ -424,6 +424,7 @@ function startLive() {
     loadStill(shot);
   }
   live = true;
+  kickLoop();
   setLiveUi(true);
   resetPlayers();
   vVideo.currentTime = 0;
@@ -534,7 +535,13 @@ function loop() {
     $('vTime').textContent = sec(vVideo.currentTime);
   }
   seriesTick();
-  rafId = requestAnimationFrame(loop);
+  // Цикл крутится только пока фото «живое» — в покое галерея ничего не перерисовывает
+  if (live || crossfading) rafId = requestAnimationFrame(loop);
+  else rafId = 0;
+}
+
+function kickLoop() {
+  if (!rafId) rafId = requestAnimationFrame(loop);
 }
 
 function frameRect() { return vFrame.getBoundingClientRect(); }
@@ -558,7 +565,7 @@ function openViewer(index) {
   fitFrame(shot);
   setViewerShot(shot);
   cancelAnimationFrame(rafId);
-  loop();
+  rafId = 0;
 
   if (tile) {
     flipFrom(tile.getBoundingClientRect());
@@ -597,6 +604,7 @@ function closeViewer() {
     resetPlayers();
     clearVideo(vVideo);
     cancelAnimationFrame(rafId);
+    rafId = 0;
     document.querySelectorAll('.hidden-for-viewer').forEach((t) => t.classList.remove('hidden-for-viewer'));
     state.viewerIndex = -1;
     state.viewerBusy = false;
@@ -1010,7 +1018,7 @@ function renderStatus(s) {
   el.dataset.state = st;
   const fps = s.fps || (state.settings && state.settings.fps);
   $('statusText').textContent =
-    st === 'live' ? `${t('status.buffer')} · ${s.height ? s.height + 'p · ' : ''}${fps}${t('unit.fps')}`
+    st === 'live' ? `${t('status.buffer')} · ${s.height ? s.height + 'p · ' : ''}${fps}${t('unit.fps')}${s.hardware ? ' · GPU' : ''}`
       : st === 'paused' ? t('status.paused')
         : st === 'error' ? (I18N.msg(s.message) || t('status.error'))
           : t('status.starting');
@@ -1023,6 +1031,7 @@ $('status').addEventListener('click', () => api.setPaused(!state.status.paused))
 // Клавиатура, прокрутка, события
 // ---------------------------------------------------------------------------
 window.addEventListener('keydown', (e) => {
+  if (welcomeOpen()) { welcomeKey(e); return; }
   if (recording) return;
   if (e.key === ' ') {
     // пробел — только «оживление», а не нажатие сфокусированной кнопки
@@ -1046,11 +1055,20 @@ window.addEventListener('keydown', (e) => {
 });
 
 window.addEventListener('keyup', (e) => {
+  if (welcomeOpen()) return;
   if (e.key !== ' ' || recording) return;
   e.preventDefault();
   stopLive();
   if (hoveredTile) hoveredTile._still();
 });
+function updateIdle() {
+  document.body.classList.toggle('idle', document.hidden || !document.hasFocus());
+}
+document.addEventListener('visibilitychange', updateIdle);
+window.addEventListener('focus', updateIdle);
+window.addEventListener('blur', updateIdle);
+updateIdle();
+
 window.addEventListener('blur', () => {
   stopLive();
   if (hoveredTile) hoveredTile._still();
@@ -1088,12 +1106,109 @@ api.onOpenShot((id) => showShot(id));
 api.onReload(() => loadShots());
 api.onStatus(renderStatus);
 
+// ---------------------------------------------------------------------------
+// Первый запуск: выбор языка
+// ---------------------------------------------------------------------------
+const welcome = $('welcome');
+let wTimer = 0;
+let wTitleLang = null;
+let wHover = false;
+let wPicking = false;
+
+function welcomeOpen() { return !welcome.hidden; }
+
+function showWelcomeTitle(code) {
+  if (code === wTitleLang) return;
+  wTitleLang = code;
+  const el = $('wTitle');
+  el.getAnimations().forEach((a) => a.cancel());
+  el.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-6px)' }], { duration: 160, easing: 'ease-in', fill: 'forwards' })
+    .finished.then(() => {
+      el.textContent = I18N.tIn(code, 'welcome.pick');
+      el.lang = I18N.LOCALES[code]; // правильные иероглифы для китайского и японского
+      el.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 260, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' });
+    }, () => {});
+}
+
+function showWelcome() {
+  const suggested = I18N.LANGS.includes(state.settings.systemLang) ? state.settings.systemLang : 'en';
+  const list = $('wLangs');
+  list.replaceChildren();
+  I18N.LANGS.forEach((code, i) => {
+    const b = document.createElement('button');
+    b.className = 'w-lang';
+    b.dataset.code = code;
+    b.setAttribute('role', 'option');
+    b.lang = I18N.LOCALES[code];
+    b.style.setProperty('--d', `${200 + i * 60}ms`);
+    b.innerHTML = `<span class="w-native"></span><span class="w-en"></span><span class="w-check">${icon('check')}</span>`;
+    b.querySelector('.w-native').textContent = I18N.NAMES[code];
+    b.querySelector('.w-en').textContent = code === 'en' ? '' : I18N.ENGLISH_NAMES[code];
+    if (code === suggested) b.classList.add('suggested');
+    b.addEventListener('click', () => pickLanguage(code, b));
+    b.addEventListener('mouseenter', () => { wHover = true; showWelcomeTitle(code); });
+    b.addEventListener('focus', () => showWelcomeTitle(code));
+    list.appendChild(b);
+  });
+  list.addEventListener('mouseleave', () => { wHover = false; });
+
+  document.body.classList.add('welcoming');
+  welcome.hidden = false;
+  wTitleLang = null;
+  $('wTitle').textContent = I18N.tIn(suggested, 'welcome.pick');
+  $('wTitle').lang = I18N.LOCALES[suggested];
+  wTitleLang = suggested;
+
+  // Заголовок по очереди говорит «выберите язык» на всех языках
+  let i = I18N.LANGS.indexOf(suggested);
+  clearInterval(wTimer);
+  wTimer = setInterval(() => {
+    if (wHover || wPicking || (document.activeElement && document.activeElement.classList.contains('w-lang'))) return;
+    i = (i + 1) % I18N.LANGS.length;
+    showWelcomeTitle(I18N.LANGS[i]);
+  }, 2400);
+}
+
+async function pickLanguage(code, btn) {
+  if (wPicking) return;
+  wPicking = true;
+  clearInterval(wTimer);
+  btn.classList.add('picked');
+  $('wLangs').classList.add('done');
+  showWelcomeTitle(code);
+  await setLanguage(code);
+  await new Promise((r) => setTimeout(r, 420));
+  welcome.classList.add('out');
+  document.body.classList.remove('welcoming');
+  setTimeout(() => {
+    welcome.hidden = true;
+    welcome.classList.remove('out');
+    wPicking = false;
+  }, 460);
+}
+
+function welcomeKey(e) {
+  const btns = [...document.querySelectorAll('.w-lang')];
+  const idx = btns.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const start = idx >= 0 ? idx : btns.findIndex((b) => b.classList.contains('suggested')) - (e.key === 'ArrowDown' ? 1 : -1);
+    const next = (start + (e.key === 'ArrowDown' ? 1 : -1) + btns.length) % btns.length;
+    btns[next].focus();
+  } else if (e.key === 'Enter' && idx < 0) {
+    e.preventDefault();
+    const sug = btns.find((b) => b.classList.contains('suggested'));
+    if (sug) sug.click();
+  }
+}
+
 ready = (async function init() {
   state.settings = await api.getSettings();
   I18N.setLang(state.settings.lang);
   applyStatic();
   buildSegs();
   applySettingsToUi();
+  if (!state.settings.langChosen) showWelcome();
   renderStatus(await api.status());
   await loadShots();
 })();

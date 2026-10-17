@@ -44,6 +44,7 @@ const DEFAULTS = {
   maxHeight: 1080,      // 720 | 1080 | 0 (исходное)
   displayId: null,      // null — основной монитор
   launchAtLogin: false,
+  langChosen: false,   // выбран ли язык на экране приветствия
   showToast: true,     // превью в углу
   flash: true,         // вспышка при нажатии
   saveDir: null,
@@ -90,8 +91,22 @@ function loadSettings() {
     settings = { ...DEFAULTS };
   }
   if (!settings.saveDir) settings.saveDir = path.join(app.getPath('videos'), 'Lumetto');
+  // Пока язык не выбран на экране приветствия — говорим на языке системы
+  if (!settings.langChosen) settings.lang = systemLang();
   settings.lang = I18N.setLang(settings.lang);
   fs.mkdirSync(settings.saveDir, { recursive: true });
+}
+
+// Язык Windows, если он среди поддерживаемых, иначе английский
+function systemLang() {
+  let list = [];
+  try { list = app.getPreferredSystemLanguages(); } catch { /* старый Electron */ }
+  list = [...list, app.getLocale()];
+  for (const l of list) {
+    const base = String(l || '').toLowerCase().split(/[-_]/)[0];
+    if (I18N.LANGS.includes(base)) return base;
+  }
+  return 'en';
 }
 
 function persistSettings() {
@@ -105,7 +120,7 @@ function persistSettings() {
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png',
-  '.jpg': 'image/jpeg', '.webm': 'video/webm', '.json': 'application/json',
+  '.jpg': 'image/jpeg', '.webm': 'video/webm', '.mp4': 'video/mp4', '.json': 'application/json',
 };
 
 function safeJoin(base, rel) {
@@ -158,7 +173,16 @@ const uiUrl = (file) => `lumetto://local/app/${file}`;
 const mediaUrl = (file) => `lumetto://local/media/${encodeURIComponent(file)}`;
 
 // ---------------------------------------------------------------------------
-// Снимки на диске: <id>.webm + <id>.jpg (кадр в момент нажатия) + <id>.json
+// Снимки на диске: <id>.mp4 (H.264) или <id>.webm (VP8/VP9) + <id>.jpg (кадр в момент нажатия) + <id>.json
+const VIDEO_EXTS = ['mp4', 'webm'];
+
+function videoFile(id) {
+  for (const ext of VIDEO_EXTS) {
+    const f = path.join(settings.saveDir, `${id}.${ext}`);
+    if (fs.existsSync(f)) return { file: f, name: `${id}.${ext}` };
+  }
+  return null;
+}
 // ---------------------------------------------------------------------------
 function makeId(date = new Date()) {
   const p = (n, l = 2) => String(n).padStart(l, '0');
@@ -168,9 +192,10 @@ function makeId(date = new Date()) {
 
 async function readShot(id) {
   const dir = settings.saveDir;
-  const video = path.join(dir, `${id}.webm`);
+  const vf = videoFile(id);
+  if (!vf) return null;
   let stat;
-  try { stat = await fsp.stat(video); } catch { return null; }
+  try { stat = await fsp.stat(vf.file); } catch { return null; }
   let meta = {};
   try { meta = JSON.parse(await fsp.readFile(path.join(dir, `${id}.json`), 'utf8')); } catch { /* старый или чужой файл */ }
   const hasPoster = fs.existsSync(path.join(dir, `${id}.jpg`));
@@ -182,7 +207,7 @@ async function readShot(id) {
   }
   return {
     id,
-    video: mediaUrl(`${id}.webm`),
+    video: mediaUrl(vf.name),
     poster: hasPoster ? mediaUrl(`${id}.jpg`) : null,
     created: meta.created || stat.mtimeMs,
     duration: meta.duration || null,
@@ -197,14 +222,19 @@ async function readShot(id) {
 async function listShots() {
   let names = [];
   try { names = await fsp.readdir(settings.saveDir); } catch { return []; }
-  const ids = names.filter((n) => n.toLowerCase().endsWith('.webm')).map((n) => n.slice(0, -5));
+  const re = /^(.+)\.(mp4|webm)$/i;
+  const ids = [...new Set(names.map((n) => re.exec(n)).filter(Boolean).map((m) => m[1]))];
   const shots = (await Promise.all(ids.map(readShot))).filter(Boolean);
   return shots.sort((a, b) => b.created - a.created);
 }
 
 function shotFiles(id) {
   const safe = path.basename(id);
-  return ['webm', 'jpg', 'json'].map((ext) => path.join(settings.saveDir, `${safe}.${ext}`));
+  // [видео, обложка, метаданные, …запасные варианты видео]
+  const vf = videoFile(safe);
+  const video = vf ? vf.file : path.join(settings.saveDir, `${safe}.mp4`);
+  const others = VIDEO_EXTS.map((ext) => path.join(settings.saveDir, `${safe}.${ext}`)).filter((f) => f !== video);
+  return [video, path.join(settings.saveDir, `${safe}.jpg`), path.join(settings.saveDir, `${safe}.json`), ...others];
 }
 
 // ---------------------------------------------------------------------------
@@ -401,11 +431,12 @@ function triggerCapture() {
   overlay({ type: 'start', id, after: settings.after });
 }
 
-async function saveCapture({ id, video, poster, meta }) {
+async function saveCapture({ id, ext, video, poster, meta }) {
   const safe = path.basename(id);
   const dir = settings.saveDir;
   await fsp.mkdir(dir, { recursive: true });
-  await fsp.writeFile(path.join(dir, `${safe}.webm`), Buffer.from(video));
+  const vext = ext === 'webm' ? 'webm' : 'mp4';
+  await fsp.writeFile(path.join(dir, `${safe}.${vext}`), Buffer.from(video));
   if (poster) await fsp.writeFile(path.join(dir, `${safe}.jpg`), Buffer.from(poster));
   await fsp.writeFile(path.join(dir, `${safe}.json`), JSON.stringify({ ...meta, created: Date.now() }, null, 2));
   const shot = await readShot(safe);
@@ -456,7 +487,7 @@ function updateTrayMenu() {
 // IPC
 // ---------------------------------------------------------------------------
 function publicSettings() {
-  return { ...settings, paused, hotkeyOk };
+  return { ...settings, paused, hotkeyOk, systemLang: systemLang() };
 }
 
 function setupIpc() {
@@ -476,7 +507,7 @@ function setupIpc() {
       app.setLoginItemSettings({ openAtLogin: !!patch.launchAtLogin, args: ['--hidden'] });
     }
     if (patch.saveDir) await fsp.mkdir(patch.saveDir, { recursive: true });
-    if ('lang' in patch) next.lang = I18N.setLang(patch.lang);
+    if ('lang' in patch) { next.lang = I18N.setLang(patch.lang); next.langChosen = true; }
     settings = next;
     persistSettings();
     const captureKeys = ['fps', 'maxHeight', 'displayId', 'before', 'after'];
@@ -546,7 +577,7 @@ function setupIpc() {
 
   ipcMain.handle('capture:save', (_e, payload) => saveCapture(payload));
   ipcMain.on('capture:status', (_e, status) => {
-    if (status.state !== captureStatus.state || status.message !== captureStatus.message) log('capture', status.state, status.message || '', `${status.width}x${status.height}`);
+    if (status.state !== captureStatus.state || status.message !== captureStatus.message || status.codec !== captureStatus.codec) log('capture', status.state, status.message || '', `${status.width}x${status.height}`, status.codec || '');
     captureStatus = status;
     broadcast('app:status', { ...status, paused });
   });
