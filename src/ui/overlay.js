@@ -168,8 +168,22 @@ function showError(p) {
 api.onOverlay((p) => {
   if (p.aspect) setGeometry(p);
 
+  if (p.type === 'reset') {
+    // сброс «зависшего» состояния (сторожевой таймер в main)
+    resetThumb();
+    flash.getAnimations().forEach((a) => a.cancel());
+    clearTimeout(errTimer);
+    err.getAnimations().forEach((a) => a.cancel());
+    err.dataset.on = '0';
+    cur = null;
+    return;
+  }
+
   if (p.type === 'start') {
     resetThumb();
+    clearTimeout(errTimer);
+    err.getAnimations().forEach((a) => a.cancel());
+    err.dataset.on = '0';
     cur = {
       id: p.id, t0: performance.now(), after: p.after || 1.5,
       preview: p.preview !== false, flashAt: performance.now(), saved: false, hovering: false, shown: false,

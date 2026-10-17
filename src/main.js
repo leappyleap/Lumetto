@@ -2,7 +2,7 @@
 
 const {
   app, BrowserWindow, globalShortcut, ipcMain, Tray, Menu, nativeImage,
-  screen, desktopCapturer, session, protocol, shell, dialog, clipboard,
+  screen, desktopCapturer, session, protocol, shell, dialog, clipboard, powerMonitor,
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -18,6 +18,12 @@ protocol.registerSchemesAsPrivileged([{
   scheme: 'lumetto',
   privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
 }]);
+
+// Окно-слой со вспышкой не должно «засыпать», когда его перекрывает полноэкранная
+// программа: иначе Chromium ставит рендеринг на паузу и анимации замирают навсегда.
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -252,6 +258,45 @@ function createCapture() {
 
 // Прозрачный слой на весь монитор: вспышка, превью «как на айфоне», ошибки.
 // Исключён из захвата экрана, поэтому в клипы не попадает.
+// ---------------------------------------------------------------------------
+// Короткий журнал (lumetto.log в папке настроек) — чтобы разбирать редкие сбои
+// ---------------------------------------------------------------------------
+let logPath = null;
+function log(...parts) {
+  try {
+    if (!logPath) logPath = path.join(app.getPath('userData'), 'lumetto.log');
+    const line = `${new Date().toISOString()} ${parts.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ')}\n`;
+    try { if (fs.statSync(logPath).size > 256 * 1024) fs.renameSync(logPath, `${logPath}.old`); } catch { /* нет файла */ }
+    fs.appendFileSync(logPath, line);
+  } catch { /* журнал не критичен */ }
+}
+
+let overlayWatchdog = 0;
+
+function recreateOverlay(reason) {
+  log('overlay:recreate', reason);
+  clearTimeout(overlayWatchdog);
+  if (overlayWin && !overlayWin.isDestroyed()) overlayWin.destroy();
+  overlayWin = null;
+  createOverlay();
+}
+
+function overlayBroken() {
+  return !overlayWin || overlayWin.isDestroyed() || overlayWin.webContents.isCrashed();
+}
+
+// Если слой почему-то не сообщил, что закончил, — сбрасываем его сами
+function armWatchdog(ms) {
+  clearTimeout(overlayWatchdog);
+  overlayWatchdog = setTimeout(() => {
+    if (overlayBroken() || !overlayWin.isVisible()) return;
+    log('overlay:watchdog-reset');
+    overlayWin.webContents.send('overlay:event', { type: 'reset' });
+    overlayWin.setIgnoreMouseEvents(true, { forward: true });
+    overlayWin.hide();
+  }, ms);
+}
+
 function createOverlay() {
   overlayWin = new BrowserWindow({
     show: false,
@@ -273,25 +318,43 @@ function createOverlay() {
   overlayWin.setVisibleOnAllWorkspaces(true);
   overlayWin.setIgnoreMouseEvents(true, { forward: true });
   overlayWin.loadURL(uiUrl('overlay.html'));
+  const wc = overlayWin.webContents;
+  wc.on('render-process-gone', (_e, d) => { log('overlay:render-gone', d.reason); setTimeout(() => recreateOverlay('render-gone'), 200); });
+  wc.on('unresponsive', () => recreateOverlay('unresponsive'));
+  const self = overlayWin;
+  overlayWin.on('closed', () => { if (overlayWin === self) overlayWin = null; });
 }
 
 function overlay(payload) {
-  if (!overlayWin || overlayWin.isDestroyed()) return;
+  if (overlayBroken()) recreateOverlay('broken-on-use');
+  const win = overlayWin;
   const d = targetDisplay();
   const b = d.bounds;
   const wa = d.workArea;
-  overlayWin.setBounds(b);
-  overlayWin.webContents.send('overlay:event', {
+  win.setBounds(b);
+  const message = {
     ...payload,
     flash: settings.flash,
     preview: settings.showToast,
     aspect: (d.size.width / d.size.height) || 16 / 9,
     inset: { right: b.x + b.width - (wa.x + wa.width), bottom: b.y + b.height - (wa.y + wa.height) },
-  });
-  if (!overlayWin.isVisible()) {
-    overlayWin.setIgnoreMouseEvents(true, { forward: true });
-    overlayWin.showInactive();
+  };
+  const deliver = () => { if (!win.isDestroyed()) win.webContents.send('overlay:event', message); };
+  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', deliver);
+  else deliver();
+
+  // Полноэкранные программы любят забирать «поверх всех» себе — возвращаем каждый раз
+  win.setAlwaysOnTop(true, 'screen-saver');
+  if (!win.isVisible()) {
+    win.setIgnoreMouseEvents(true, { forward: true });
+    win.showInactive();
   }
+  win.moveTop();
+
+  if (payload.type === 'start') armWatchdog(settings.after * 1000 + 9000);
+  else if (payload.type === 'saved') armWatchdog(20000); // с запасом: пользователь может держать мышь на превью
+  else if (payload.type === 'error') armWatchdog(6000);
+  log('overlay', payload.type, payload.id || '', win.isVisible() ? 'visible' : 'hidden');
 }
 
 function openShotInGallery(id) {
@@ -483,6 +546,7 @@ function setupIpc() {
 
   ipcMain.handle('capture:save', (_e, payload) => saveCapture(payload));
   ipcMain.on('capture:status', (_e, status) => {
+    if (status.state !== captureStatus.state || status.message !== captureStatus.message) log('capture', status.state, status.message || '', `${status.width}x${status.height}`);
     captureStatus = status;
     broadcast('app:status', { ...status, paused });
   });
@@ -499,6 +563,7 @@ function setupIpc() {
     if (overlayWin && !overlayWin.isDestroyed()) overlayWin.setIgnoreMouseEvents(!!ignore, { forward: true });
   });
   ipcMain.on('overlay:done', () => {
+    clearTimeout(overlayWatchdog);
     if (overlayWin && !overlayWin.isDestroyed()) {
       overlayWin.setIgnoreMouseEvents(true, { forward: true });
       overlayWin.hide();
@@ -537,8 +602,19 @@ app.whenReady().then(() => {
   const hidden = process.argv.includes('--hidden');
   createGallery(!hidden);
 
-  screen.on('display-removed', () => createCapture());
-  screen.on('display-metrics-changed', () => { /* размер подхватится при перезапуске захвата */ });
+  screen.on('display-removed', () => { log('display-removed'); createCapture(); });
+  screen.on('display-added', () => log('display-added'));
+  screen.on('display-metrics-changed', (_e, d, changed) => log('display-metrics-changed', d.id, changed));
+
+  // Полноэкранные игры и сон часто перезапускают графику — тогда прозрачное окно
+  // может стать невидимым навсегда. Пересоздаём слой.
+  app.on('child-process-gone', (_e, d) => {
+    log('child-process-gone', d.type, d.reason);
+    if (d.type === 'GPU') setTimeout(() => recreateOverlay('gpu-gone'), 500);
+  });
+  powerMonitor.on('resume', () => setTimeout(() => recreateOverlay('resume'), 1500));
+  powerMonitor.on('unlock-screen', () => setTimeout(() => recreateOverlay('unlock'), 1500));
+  log('start', app.getVersion(), process.platform, process.getSystemVersion ? process.getSystemVersion() : '');
 });
 
 app.on('before-quit', () => { quitting = true; });
