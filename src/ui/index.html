@@ -22,6 +22,8 @@
       <symbol id="i-gif" viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="3"/><path d="M10 10.2c-.3-.5-.9-.8-1.6-.8-1.1 0-1.9.9-1.9 2.6s.8 2.6 1.9 2.6c1 0 1.7-.7 1.7-1.8v-.4H8.6M12.6 9.5v5M15.6 14.5v-5h2.6M15.6 12h2.1"/></symbol>
       <symbol id="i-pausebuf" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M10 9v6M14 9v6"/></symbol>
       <symbol id="i-series" viewBox="0 0 24 24"><rect x="3.5" y="7.5" width="13" height="12" rx="2.4"/><path d="M7.5 4.5h10.2c1.5 0 2.8 1.3 2.8 2.8v8.2"/></symbol>
+      <symbol id="i-sound" viewBox="0 0 24 24"><path d="M4.5 9.5h3l4.5-4v13l-4.5-4h-3z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></symbol>
+      <symbol id="i-mute" viewBox="0 0 24 24"><path d="M4.5 9.5h3l4.5-4v13l-4.5-4h-3z"/><path d="m16 10 4 4M20 10l-4 4"/></symbol>
       <symbol id="i-check" viewBox="0 0 24 24"><path d="m5.5 12.5 4 4 9-9"/></symbol>
     </defs>
   </svg>
@@ -91,6 +93,7 @@
       </div>
       <span class="v-time dim" id="vDur">3,0</span>
       <span class="v-sep"></span>
+      <button class="icon-btn" id="vSound" hidden><svg><use href="#i-sound"/></svg></button>
       <button class="icon-btn" id="vGif" data-i18n-title="v.gif"><svg><use href="#i-gif"/></svg></button>
       <button class="icon-btn" id="vCopy" data-i18n-title="v.copy"><svg><use href="#i-copy"/></svg></button>
       <button class="icon-btn" id="vReveal" data-i18n-title="v.reveal"><svg><use href="#i-folder"/></svg></button>
@@ -148,6 +151,14 @@
         <label class="toggle"><span data-i18n="set.buffer"></span><input type="checkbox" id="tBuffer"><i></i></label>
         <label class="toggle"><span data-i18n="set.flash"></span><input type="checkbox" id="tFlash"><i></i></label>
         <label class="toggle"><span data-i18n="set.preview"></span><input type="checkbox" id="tToast"><i></i></label>
+        <div id="audioField">
+          <label class="toggle"><span data-i18n="set.audio"></span><input type="checkbox" id="tAudio"><i></i></label>
+          <label class="toggle"><span data-i18n="set.mic"></span><input type="checkbox" id="tMic"><i></i></label>
+          <div class="mic-pick" id="micPick" hidden>
+            <div class="select-wrap"><select id="micId"></select></div>
+            <p class="note err" id="micErr" data-i18n="set.micError" hidden></p>
+          </div>
+        </div>
         <label class="toggle"><span data-i18n="set.login"></span><input type="checkbox" id="tLogin"><i></i></label>
       </div>
 
@@ -168,7 +179,6 @@
   <div class="toasts" id="toasts"></div>
 
   <script src="i18n.js"></script>
-  <script src="lib/gif.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

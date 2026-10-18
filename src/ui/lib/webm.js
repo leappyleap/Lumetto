@@ -64,9 +64,10 @@
    * @param {number} o.height
    * @param {number} o.fps
    * @param {{key:boolean, ts:number, data:Uint8Array}[]} o.chunks  ts — микросекунды
+   * @param {object} [o.audio]  { codec:'opus', sampleRate, channels, description, chunks:[{ts,dur,data}] }
    * @returns {Uint8Array}
    */
-  function mux({ codecId, width, height, fps, chunks }) {
+  function mux({ codecId, width, height, fps, chunks, audio }) {
     if (!chunks.length) throw new Error('err.fewFrames');
     const t0 = chunks[0].ts;
     const frameMs = 1000 / fps;
@@ -79,22 +80,44 @@
     const info = el(0x1549A966, [
       u(0x2AD7B1, 1000000), s(0x4D80, 'Lumetto'), s(0x5741, 'Lumetto'), f(0x4489, durationMs),
     ]);
+    const hasAudio = !!(audio && audio.codec === 'opus' && audio.chunks && audio.chunks.length);
+    const opusHead = () => {
+      if (audio.description) return bytes(audio.description);
+      const h = new Uint8Array(19);
+      h.set(te.encode('OpusHead'));
+      const dv = new DataView(h.buffer);
+      h[8] = 1; h[9] = audio.channels;
+      dv.setUint16(10, 312, true); dv.setUint32(12, audio.sampleRate, true);
+      return h;
+    };
     const tracks = el(0x1654AE6B, [
       el(0xAE, [
         u(0xD7, 1), u(0x73C5, 1), u(0x83, 1), u(0x9C, 0), s(0x86, codecId),
         u(0x23E383, Math.round(1e9 / fps)),
         el(0xE0, [u(0xB0, width), u(0xBA, height)]),
       ]),
+      ...(hasAudio ? [el(0xAE, [
+        u(0xD7, 2), u(0x73C5, 2), u(0x83, 2), u(0x9C, 0), s(0x86, 'A_OPUS'),
+        el(0x63A2, [opusHead()]),
+        el(0xE1, [f(0xB5, audio.sampleRate), u(0x9F, audio.channels)]),
+      ])] : []),
     ]);
 
     // Новый кластер — на каждом ключевом кадре (это и точки перемотки)
+    // Видео и звук идут вперемешку по времени; кластер начинается с ключевого кадра видео
+    const events = chunks.map((c) => ({ ...c, track: 1 }));
+    if (hasAudio) for (const a of audio.chunks) if (a.ts >= t0) events.push({ ts: a.ts, data: a.data, key: true, track: 2 });
+    events.sort((a, b) => a.ts - b.ts || a.track - b.track);
     const clusters = [];
     let cur = null;
-    for (const c of chunks) {
+    for (const c of events) {
       const tms = Math.round((c.ts - t0) / 1000);
-      if (c.key || !cur || tms - cur.tc > 30000) { cur = { tc: tms, blocks: [] }; clusters.push(cur); }
+      if ((c.track === 1 && c.key) || !cur || tms - cur.tc > 30000) {
+        cur = { tc: tms, blocks: [] };
+        clusters.push(cur);
+      }
       const rel = tms - cur.tc;
-      const hdr = new Uint8Array([0x81, (rel >> 8) & 0xff, rel & 0xff, c.key ? 0x80 : 0x00]);
+      const hdr = new Uint8Array([0x80 | c.track, (rel >> 8) & 0xff, rel & 0xff, c.key ? 0x80 : 0x00]);
       cur.blocks.push(el(0xA3, [hdr, c.data]));
     }
     const clusterBytes = clusters.map((cl) => el(0x1F43B675, [u(0xE7, cl.tc), ...cl.blocks]));

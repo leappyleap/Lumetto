@@ -470,3 +470,11 @@ body.idle *, body.idle *::before, body.idle *::after { animation-play-state: pau
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* пояснение под переключателем */
+.toggle-note { margin: -6px 0 6px; max-width: 280px; }
+
+/* выбор микрофона — раскрывается под переключателем */
+.mic-pick { margin: 2px 0 10px; animation: rise .35s var(--ease) both; }
+.mic-pick select { height: 34px; font-size: 12.5px; }
+.mic-pick .note { margin-top: 6px; }

@@ -24,6 +24,12 @@ protocol.registerSchemesAsPrivileged([{
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
+if (process.env.LUMETTO_FAKE_AUDIO) {
+  // только для автотестов: синтетический звук и фальшивый микрофон
+  app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+  app.commandLine.appendSwitch('use-fake-device-for-media-stream');
+  app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
+}
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -45,6 +51,9 @@ const DEFAULTS = {
   displayId: null,      // null — основной монитор
   launchAtLogin: false,
   langChosen: false,   // выбран ли язык на экране приветствия
+  audio: false,        // записывать звук системы
+  mic: false,          // записывать микрофон
+  micId: '',           // какой микрофон ('' — по умолчанию)
   showToast: true,     // превью в углу
   flash: true,         // вспышка при нажатии
   saveDir: null,
@@ -214,6 +223,7 @@ async function readShot(id) {
     width: meta.width || null,
     height: meta.height || null,
     keyTime: meta.keyTime ?? null,
+    audio: !!meta.audio,
     start,
     size: stat.size,
   };
@@ -280,7 +290,7 @@ function createCapture() {
     height: 200,
     show: false,
     skipTaskbar: true,
-    webPreferences: { preload, sandbox: false, contextIsolation: true, backgroundThrottling: false },
+    webPreferences: { preload, sandbox: false, contextIsolation: true, backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required' },
   });
   captureWin.loadURL(uiUrl('capture.html'));
   captureWin.on('closed', () => { captureWin = null; });
@@ -487,7 +497,11 @@ function updateTrayMenu() {
 // IPC
 // ---------------------------------------------------------------------------
 function publicSettings() {
-  return { ...settings, paused, hotkeyOk, systemLang: systemLang() };
+  return {
+    ...settings, paused, hotkeyOk, systemLang: systemLang(),
+    audioSupported: process.platform === 'win32' || !!process.env.LUMETTO_FAKE_AUDIO,
+    fakeAudio: !!process.env.LUMETTO_FAKE_AUDIO,
+  };
 }
 
 function setupIpc() {
@@ -510,7 +524,7 @@ function setupIpc() {
     if ('lang' in patch) { next.lang = I18N.setLang(patch.lang); next.langChosen = true; }
     settings = next;
     persistSettings();
-    const captureKeys = ['fps', 'maxHeight', 'displayId', 'before', 'after'];
+    const captureKeys = ['fps', 'maxHeight', 'displayId', 'before', 'after', 'audio', 'mic', 'micId'];
     if (captureKeys.some((k) => k in patch && patch[k] !== prev[k])) createCapture();
     if (patch.saveDir && patch.saveDir !== prev.saveDir) broadcast('shots:reload');
     updateTrayMenu();
@@ -559,6 +573,7 @@ function setupIpc() {
     return true;
   });
   ipcMain.handle('shots:saveGif', async (_e, { id, data }) => {
+    if (process.env.LUMETTO_TEST_GIF) { await fsp.writeFile(process.env.LUMETTO_TEST_GIF, Buffer.from(data)); return process.env.LUMETTO_TEST_GIF; }
     const r = await dialog.showSaveDialog(galleryWin, {
       title: t('dlg.saveGif'),
       defaultPath: path.join(app.getPath('pictures'), `Lumetto-${path.basename(id)}.gif`),
@@ -620,7 +635,9 @@ app.whenReady().then(() => {
       const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } });
       const wanted = String(targetDisplay().id);
       const source = sources.find((s) => s.display_id === wanted) || sources[0];
-      callback(source ? { video: source } : {});
+      // Звук системы (то, что слышно в колонках) — только Windows и только если включён
+      const audio = settings.audio && process.platform === 'win32' ? { audio: 'loopback' } : {};
+      callback(source ? { video: source, ...audio } : {});
     } catch {
       callback({});
     }

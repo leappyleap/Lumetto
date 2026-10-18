@@ -34,13 +34,25 @@ let generation = 0;
 const posterWaiters = [];
 const badCodecs = new Set();  // варианты, которые заявлены, но на деле не работают
 
+// Звук системы (необязательно, включается в настройках)
+let aReader = null;
+let aEncoder = null;
+let aInfo = null;             // { codec:'aac'|'opus', sampleRate, channels }
+let aDesc = null;             // AudioSpecificConfig / OpusHead
+let aChunks = [];             // { ts (мкс, наша шкала), dur, data }
+let aOffset = null;           // сдвиг часов звука к нашей шкале
+let fakeAudioCtx = null;
+let micStream = null;         // микрофон (если включён)
+let mixCtx = null;            // смешивание микрофона и звука системы
+let micState = 'off';         // off | on | error
+
 const nowUs = () => Math.round(performance.now() * 1000);
 const even = (n) => Math.max(2, Math.round(n / 2) * 2);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function status(state, extra = {}) {
   api.reportStatus({
-    state, width: W, height: H, fps: cfg && cfg.fps,
+    state, width: W, height: H, fps: cfg && cfg.fps, mic: micState,
     codec: enc && enc.label, hardware: enc && enc.hw === 'prefer-hardware', ...extra,
   });
 }
@@ -102,7 +114,11 @@ async function start() {
     // Уменьшает кадр сам захват — так дешевле, чем рисовать через холст
     const video = { frameRate: { ideal: cfg.fps, max: cfg.fps }, cursor: 'always' };
     if (cfg.maxHeight) video.height = { ideal: cfg.maxHeight, max: cfg.maxHeight };
-    stream = await navigator.mediaDevices.getDisplayMedia({ video, audio: false });
+    const wantAudio = !!cfg.audio && !cfg.fakeAudio;
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video,
+      audio: wantAudio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false,
+    });
   } catch (e) {
     status('error', { message: 'err.noScreen' });
     scheduleRestart(4000);
@@ -151,6 +167,14 @@ async function start() {
   reader = processor.readable.getReader();
   pump(reader);
 
+  if (cfg.audio || cfg.mic) {
+    const gen2 = generation;
+    getAudioTrack().then((aTrack) => {
+      if (gen2 !== generation) return;
+      if (aTrack) startAudio(aTrack).catch((e) => console.warn('audio off:', e));
+    });
+  }
+
   // Таймер в воркере не замедляется в фоне — кадры идут ровно
   const src = 'let t;onmessage=e=>{clearInterval(t);if(e.data>0)t=setInterval(()=>postMessage(0),e.data)}';
   ticker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
@@ -169,6 +193,126 @@ async function pump(r) {
       latest = value;
     }
   } catch { /* поток закрыт */ }
+}
+
+// ---------------------------------------------------------------------------
+// Звук: тот же принцип — сжатые кусочки в кольцевом буфере
+// ---------------------------------------------------------------------------
+// Звук системы и/или микрофон → одна дорожка
+async function getAudioTrack() {
+  const tracks = [];
+  if (cfg.audio) {
+    let t = stream && stream.getAudioTracks()[0];
+    if (!t && cfg.fakeAudio) t = makeFakeAudioTrack(); // только для автотестов
+    if (t) tracks.push(t);
+  }
+  micState = 'off';
+  if (cfg.mic) {
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          ...(cfg.micId ? { deviceId: { exact: cfg.micId } } : {}),
+          echoCancellation: false, noiseSuppression: true, autoGainControl: true,
+        },
+      });
+      tracks.push(micStream.getAudioTracks()[0]);
+      micState = 'on';
+    } catch (e) {
+      console.warn('mic unavailable', e);
+      micState = 'error';
+    }
+    status('live', { mic: micState });
+  }
+  if (!tracks.length) return null;
+  if (tracks.length === 1) return tracks[0];
+
+  // Оба источника: смешиваем в одну стереодорожку
+  mixCtx = new AudioContext({ sampleRate: 48000 });
+  const dest = mixCtx.createMediaStreamDestination();
+  dest.channelCount = 2;
+  for (const t of tracks) mixCtx.createMediaStreamSource(new MediaStream([t])).connect(dest);
+  await mixCtx.resume().catch(() => {});
+  return dest.stream.getAudioTracks()[0];
+}
+
+async function pickAudio(sampleRate, channels) {
+  const list = enc.container === 'mp4'
+    ? [{ codec: 'mp4a.40.2', kind: 'aac', extra: { aac: { format: 'aac' } } }, { codec: 'opus', kind: 'opus' }]
+    : [{ codec: 'opus', kind: 'opus' }];
+  for (const c of list) {
+    const config = { codec: c.codec, sampleRate, numberOfChannels: channels, bitrate: 160000, ...(c.extra || {}) };
+    try {
+      const r = await AudioEncoder.isConfigSupported(config);
+      if (r.supported) return { config, kind: c.kind };
+    } catch { /* следующий */ }
+  }
+  return null;
+}
+
+async function startAudio(track) {
+  const st = track.getSettings();
+  const sampleRate = st.sampleRate || 48000;
+  const channels = Math.min(2, st.channelCount || 2);
+  const picked = await pickAudio(sampleRate, channels);
+  if (!picked) { track.stop(); return; }
+  aInfo = { codec: picked.kind, sampleRate, channels };
+  aDesc = null;
+  aChunks = [];
+  aOffset = null;
+  aEncoder = new AudioEncoder({
+    output: (chunk, meta) => {
+      if (meta && meta.decoderConfig && meta.decoderConfig.description) {
+        aDesc = new Uint8Array(meta.decoderConfig.description.slice ? meta.decoderConfig.description.slice(0) : meta.decoderConfig.description);
+      }
+      const data = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(data);
+      aChunks.push({ ts: chunk.timestamp + aOffset, dur: chunk.duration || 0, data });
+      pruneAudio();
+    },
+    error: (e) => { console.warn('audio encoder', e); aInfo = null; },
+  });
+  aEncoder.configure(picked.config);
+  aReader = new MediaStreamTrackProcessor({ track }).readable.getReader();
+  const r = aReader;
+  (async () => {
+    try {
+      for (;;) {
+        const { value, done } = await r.read();
+        if (done) break;
+        // часы звука переводим в нашу шкалу один раз — по первому кусочку
+        if (aOffset === null) aOffset = nowUs() - value.timestamp - (value.duration || 0);
+        if (!paused && aEncoder && aEncoder.state === 'configured') aEncoder.encode(value);
+        value.close();
+      }
+    } catch { /* поток закрыт */ }
+  })();
+}
+
+function pruneAudio() {
+  const limit = nowUs() - (cfg.before + cfg.after + 3) * 1e6;
+  let cut = 0;
+  while (cut < aChunks.length && aChunks[cut].ts < limit) cut++;
+  if (cut) aChunks.splice(0, cut);
+}
+
+// Синтетический звук для автотестов (на Windows используется настоящий звук системы)
+function makeFakeAudioTrack() {
+  fakeAudioCtx = new AudioContext({ sampleRate: 48000 });
+  const osc = fakeAudioCtx.createOscillator();
+  const gain = fakeAudioCtx.createGain();
+  osc.frequency.value = 440;
+  gain.gain.value = 0.2;
+  // короткие «щелчки» раз в 0,5 с — по ним видно синхронизацию
+  const lfo = fakeAudioCtx.createOscillator();
+  lfo.type = 'square';
+  lfo.frequency.value = 2;
+  const lfoGain = fakeAudioCtx.createGain();
+  lfoGain.gain.value = 0.2;
+  lfo.connect(lfoGain).connect(gain.gain);
+  const dest = fakeAudioCtx.createMediaStreamDestination();
+  osc.connect(gain).connect(dest);
+  osc.start(); lfo.start();
+  return dest.stream.getAudioTracks()[0];
 }
 
 function ensureCanvas() {
@@ -260,9 +404,16 @@ async function capture({ id }) {
     if (selected.length < 2) throw new Error('err.fewFrames');
 
     const container = enc.container;
+    const vStart = selected[0].ts;
+    const vEnd = selected[selected.length - 1].ts + 1e6 / cfg.fps;
+    let audio = null;
+    if (aInfo && aChunks.length) {
+      const ac = aChunks.filter((c) => c.ts >= vStart - 10000 && c.ts < vEnd);
+      if (ac.length) audio = { ...aInfo, description: aDesc, chunks: ac };
+    }
     const video = container === 'mp4'
-      ? MP4.mux({ width: W, height: H, fps: cfg.fps, avcC, chunks: selected })
-      : WebM.mux({ codecId: enc.id, width: W, height: H, fps: cfg.fps, chunks: selected });
+      ? MP4.mux({ width: W, height: H, fps: cfg.fps, avcC, chunks: selected, audio })
+      : WebM.mux({ codecId: enc.id, width: W, height: H, fps: cfg.fps, chunks: selected, audio });
     const posterBlob = await Promise.race([posterPromise, sleep(1000).then(() => null)]);
     const poster = posterBlob ? await posterBlob.arrayBuffer() : null;
     const first = selected[0].ts;
@@ -278,6 +429,7 @@ async function capture({ id }) {
         height: H,
         fps: cfg.fps,
         codec: enc.label,
+        audio: !!audio,
         duration: (last - first) / 1e6 + 1 / cfg.fps,
         keyTime: Math.max(0, (tTrig - first) / 1e6),
         start: Date.now() - (nowUs() - first) / 1000,
@@ -298,6 +450,15 @@ function stop() {
   encoder = null;
   if (latest) { latest.close(); latest = null; }
   chunks = [];
+  if (aReader) { aReader.cancel().catch(() => {}); aReader = null; }
+  if (aEncoder && aEncoder.state !== 'closed') { try { aEncoder.close(); } catch { /* */ } }
+  aEncoder = null;
+  aInfo = null;
+  aChunks = [];
+  aOffset = null;
+  if (fakeAudioCtx) { fakeAudioCtx.close().catch(() => {}); fakeAudioCtx = null; }
+  if (micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; }
+  if (mixCtx) { mixCtx.close().catch(() => {}); mixCtx = null; }
 }
 
 function scheduleRestart(ms) {

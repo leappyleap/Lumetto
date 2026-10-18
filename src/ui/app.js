@@ -300,6 +300,7 @@ function shotDuration(shot) {
 }
 
 function updateViewerMeta(shot) {
+  updateSoundBtn(shot);
   $('vDate').textContent = t('v.dateTime', { day: dayLabel(shot.created), time: timeLabel(shot.created) });
   const parts = [];
   if (shot.width) parts.push(`${shot.width} × ${shot.height}`);
@@ -372,6 +373,7 @@ function finishSeries() {
   if (!first || first === shot) { stopLive(); return; }
   live = false;
   setLiveUi(false);
+  fadeOutAudio(vVideo);
   if (crossfading) resetPlayers();
 
   const oldTile = tileEl(shot.id);
@@ -414,6 +416,46 @@ function setViewerShot(shot) {
   showStillPosition(shot);
 }
 
+// ---------------------------------------------------------------------------
+// Звук в просмотре: играет, пока фото «живое», если в клипе он есть
+// ---------------------------------------------------------------------------
+state.soundOn = (() => { try { return localStorage.getItem('sound') !== 'off'; } catch { return true; } })();
+
+function soundFor(shot) { return !!(shot && shot.audio && state.soundOn); }
+
+function applySound(v, shot) {
+  v.muted = !soundFor(shot);
+  v.volume = 1;
+}
+
+// Плавно гасим звук, чтобы при отпускании пробела не было щелчка
+function fadeOutAudio(v, ms = 260) {
+  if (v.muted || v.paused) return;
+  const t0 = performance.now();
+  const step = () => {
+    const k = Math.min(1, (performance.now() - t0) / ms);
+    v.volume = Math.max(0, 1 - k);
+    if (k < 1) requestAnimationFrame(step);
+    else { v.muted = true; v.volume = 1; }
+  };
+  requestAnimationFrame(step);
+}
+
+function updateSoundBtn(shot) {
+  const btn = $('vSound');
+  btn.hidden = !(shot && shot.audio);
+  btn.innerHTML = icon(state.soundOn ? 'sound' : 'mute');
+  btn.title = t(state.soundOn ? 'v.soundOn' : 'v.soundOff');
+}
+
+function toggleSound() {
+  state.soundOn = !state.soundOn;
+  try { localStorage.setItem('sound', state.soundOn ? 'on' : 'off'); } catch { /* */ }
+  const shot = currentShot();
+  updateSoundBtn(shot);
+  if (live) applySound(vVideo, shot);
+}
+
 function startLive() {
   const shot = currentShot();
   if (!shot || live || scrubbing || state.viewerBusy || viewer.hidden) return;
@@ -427,6 +469,7 @@ function startLive() {
   kickLoop();
   setLiveUi(true);
   resetPlayers();
+  applySound(vVideo, shot);
   vVideo.currentTime = 0;
   vVideo.play().catch(() => {});
 }
@@ -439,6 +482,7 @@ function stopLive() {
   setLiveUi(false);
   vPoster.classList.remove('gone'); // фото плавно возвращается поверх видео
   const v = vVideo;
+  fadeOutAudio(v);
   setTimeout(() => { if (!live && v === vVideo) { v.pause(); v.currentTime = 0; } }, 380);
   showStillPosition(currentShot());
 }
@@ -469,6 +513,9 @@ function crossfadeTo(nxt) {
   if (Math.abs(incoming.currentTime - off) > 0.08) incoming.currentTime = off;
   incoming.style.zIndex = '2';
   outgoing.style.zIndex = '1';
+  // Звук тоже «перетекает»: новый клип продолжает с того же мгновения, старый замолкает
+  applySound(incoming, nxt);
+  outgoing.muted = true;
   incoming.play().catch(() => {});
   xfadeAnim = incoming.animate([{ opacity: 0 }, { opacity: 1 }], { duration: XFADE * 1000, easing: 'ease-in-out' });
   xfadeAnim.finished.then(() => {
@@ -715,6 +762,10 @@ async function deleteCurrent() {
 // Экспорт в GIF
 function once(el, ev) { return new Promise((res, rej) => { el.addEventListener(ev, res, { once: true }); el.addEventListener('error', rej, { once: true }); }); }
 
+// Экспорт в GIF: кадры снимаются с видео и сразу уходят в фоновый поток-кодировщик
+const GIF_FPS = 20;        // 20 к/с — ровно 5 сотых секунды на кадр, без «дёрганья» таймингов
+const GIF_MAX_W = 720;
+
 async function exportGif() {
   const shot = currentShot();
   const btn = $('vGif');
@@ -722,37 +773,56 @@ async function exportGif() {
   btn.classList.add('busy');
   btn.innerHTML = '<svg class="ring-prog" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-opacity=".2"/><circle id="gifRing" cx="12" cy="12" r="9" stroke-dasharray="56.5" stroke-dashoffset="56.5" transform="rotate(-90 12 12)"/></svg>';
   const ring = btn.querySelector('#gifRing');
-  const progress = (k) => { ring.style.strokeDashoffset = String(56.5 * (1 - k)); };
+  const progress = (k) => { ring.style.strokeDashoffset = String(56.5 * (1 - Math.min(1, k))); };
 
+  const worker = new Worker('lib/gif-worker.js');
   try {
     const v = document.createElement('video');
     v.muted = true; v.preload = 'auto'; v.src = shot.video;
     await once(v, 'loadeddata');
     const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : (shot.duration || 3);
-    const fps = 15;
-    const n = Math.max(2, Math.floor(dur * fps));
-    const w = Math.min(560, v.videoWidth);
+    const n = Math.max(2, Math.floor(dur * GIF_FPS));
+    const w = Math.round(Math.min(GIF_MAX_W, v.videoWidth) / 2) * 2;
     const h = Math.round((w * v.videoHeight) / v.videoWidth / 2) * 2;
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
     const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    const frames = [];
+
+    let encoded = 0;
+    let waiters = [];
+    const result = new Promise((resolve, reject) => {
+      worker.onmessage = (e) => {
+        if (e.data.type === 'progress') {
+          encoded = e.data.done;
+          progress(encoded / n);
+          waiters.splice(0).forEach((r) => r());
+        } else if (e.data.type === 'result') resolve(e.data.data);
+      };
+      worker.onerror = (e) => reject(e);
+    });
+
+    worker.postMessage({ type: 'start', width: w, height: h, delayCs: Math.round(100 / GIF_FPS) });
     for (let i = 0; i < n; i++) {
-      v.currentTime = Math.min(dur - 0.02, i / fps);
+      v.currentTime = Math.min(dur - 0.01, i / GIF_FPS + 0.001);
       await once(v, 'seeked');
       ctx.drawImage(v, 0, 0, w, h);
-      frames.push(ctx.getImageData(0, 0, w, h));
-      progress((i + 1) / n * 0.45);
+      const buf = ctx.getImageData(0, 0, w, h).data.buffer;
+      worker.postMessage({ type: 'frame', data: buf }, [buf]);
+      // не держим в памяти больше нескольких кадров впрок
+      while (i + 1 - encoded > 4) await new Promise((r) => waiters.push(r));
     }
     v.removeAttribute('src'); v.load();
-    const data = await GifEncoder.encode(frames, 1000 / fps, (k) => progress(0.45 + k * 0.55));
-    const saved = await api.saveGif(shot.id, data.buffer);
+    worker.postMessage({ type: 'end' });
+    const data = await result;
+    const saved = await api.saveGif(shot.id, data);
     if (saved) toast(t('toast.gifSaved'));
   } catch (e) {
     console.error(e);
     toast(t('toast.gifFail'), 'close');
   } finally {
+    worker.terminate();
     btn.classList.remove('busy');
     btn.innerHTML = icon('gif');
   }
@@ -773,6 +843,7 @@ $('vCopy').addEventListener('click', async () => {
   if (currentShot() && await api.copyFrame(currentShot().id)) toast(t('toast.copied'));
 });
 $('vGif').addEventListener('click', exportGif);
+$('vSound').addEventListener('click', toggleSound);
 
 window.addEventListener('resize', () => { if (!viewer.hidden && currentShot()) fitFrame(currentShot()); });
 
@@ -790,6 +861,11 @@ function applySettingsToUi() {
   $('saveDir').textContent = s.saveDir;
   $('tToast').checked = !!s.showToast;
   $('tFlash').checked = s.flash !== false;
+  $('tAudio').checked = !!s.audio;
+  $('tAudio').closest('.toggle').hidden = !s.audioSupported; // звук системы — только Windows
+  $('tMic').checked = !!s.mic;
+  $('micPick').hidden = !s.mic;
+  $('micErr').hidden = !(s.mic && state.status.mic === 'error');
   $('tLogin').checked = !!s.launchAtLogin;
   $('tBuffer').checked = !state.status.paused;
   const note = $('hotkeyNote');
@@ -907,6 +983,7 @@ async function fillDisplays() {
 async function openSettings() {
   state.settings = await api.getSettings();
   await fillDisplays();
+  if (state.settings.mic) fillMics();
   $('lang').value = I18N.lang;
   drawer.classList.add('on');
   drawer.setAttribute('aria-hidden', 'false');
@@ -1001,6 +1078,40 @@ $('lang').addEventListener('change', (e) => setLanguage(e.target.value));
 $('display').addEventListener('change', (e) => updateSetting('displayId', e.target.value));
 $('tToast').addEventListener('change', (e) => updateSetting('showToast', e.target.checked));
 $('tFlash').addEventListener('change', (e) => updateSetting('flash', e.target.checked));
+$('tAudio').addEventListener('change', (e) => updateSetting('audio', e.target.checked));
+$('tMic').addEventListener('change', async (e) => {
+  await updateSetting('mic', e.target.checked);
+  if (e.target.checked) fillMics();
+});
+$('micId').addEventListener('change', (e) => updateSetting('micId', e.target.value));
+
+// Список микрофонов (названия видны только после разрешения на доступ)
+async function fillMics() {
+  const sel = $('micId');
+  let devs = [];
+  try {
+    devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+    if (devs.length && !devs.some((d) => d.label)) {
+      const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
+      tmp.getTracks().forEach((tr) => tr.stop());
+      devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+    }
+  } catch { /* нет доступа — останется вариант по умолчанию */ }
+  sel.replaceChildren();
+  const def = document.createElement('option');
+  def.value = '';
+  def.textContent = t('set.micDefault');
+  sel.appendChild(def);
+  for (const d of devs) {
+    if (d.deviceId === 'default' || d.deviceId === 'communications') continue;
+    const o = document.createElement('option');
+    o.value = d.deviceId;
+    o.textContent = d.label || `${t('set.mic')} ${sel.options.length}`;
+    sel.appendChild(o);
+  }
+  sel.value = state.settings.micId || '';
+  if (sel.value !== (state.settings.micId || '')) sel.value = '';
+}
 $('tLogin').addEventListener('change', (e) => updateSetting('launchAtLogin', e.target.checked));
 $('tBuffer').addEventListener('change', (e) => api.setPaused(!e.target.checked));
 $('pickDir').addEventListener('click', async () => {
@@ -1023,6 +1134,7 @@ function renderStatus(s) {
         : st === 'error' ? (I18N.msg(s.message) || t('status.error'))
           : t('status.starting');
   $('tBuffer').checked = !s.paused;
+  if (state.settings) $('micErr').hidden = !(state.settings.mic && s.mic === 'error');
 }
 
 $('status').addEventListener('click', () => api.setPaused(!state.status.paused));
